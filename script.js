@@ -76,97 +76,85 @@ const LearnerSubmissions = [
   }
 ];
 // SECTION 4: Main Function
-// -------------------------
 function getLearnerData(course, ag, submissions) {
   try {
-    if (course.id !== ag.course_id) {  //  Check if assignment group matches the course
+    // 1. Make sure the assignment group belongs to the same course
+    if (course.id !== ag.course_id) {
       throw new Error("Assignment group does not match course!");
     }
-// Filter out assignments that are not due yet
-    const now = new Date(); // today's date
-    const validAssignments = ag.assignments.filter((a) => {
-      const dueDate = new Date(a.due_at);
-      return dueDate <= now; // only include if already due
-    });
 
-    // Create a quick lookup object for assignment info by ID
-    const assignmentMap = {};
-    for (let a of validAssignments) {
-      assignmentMap[a.id] = a;
+    // 2. Make a quick "dictionary" of assignments by their ID
+    const assignmentById = {};
+    for (const a of ag.assignments) { // loop type 1: for..of
+      assignmentById[a.id] = a;
     }
 
-    // Group submissions by learner
-    const learnerMap = {};
-    for (let sub of submissions) {
-      const id = sub.learner_id;
-      if (!learnerMap[id]) {
-        learnerMap[id] = [];
+    // 3. This will store all learner info as we go
+    const learners = {}; // example: { "125": { totalScore: 0, totalPossible: 0, scores: {} } }
+
+    // 4. MASTER LOOP – Go through every submission one-by-one
+    for (const sub of submissions) { // loop type 1 again
+      const learnerId = sub.learner_id;
+      const assignment = assignmentById[sub.assignment_id];
+
+      // Skip if assignment not found
+      if (!assignment) continue; // loop control keyword
+
+      // Skip if the assignment is not due yet
+      const now = new Date();
+      const dueDate = new Date(assignment.due_at);
+      if (dueDate > now) continue; // skip to next submission
+
+      // Get the score and possible points
+      let score = sub.submission.score;
+      const possible = assignment.points_possible;
+
+      // Skip if possible points are 0 (avoid division error)
+      if (possible === 0) continue;
+
+      // If late, take off 10% from the score
+      const submitDate = new Date(sub.submission.submitted_at);
+      if (submitDate > dueDate) {
+        score = score * 0.9;
       }
-      learnerMap[id].push(sub);
+
+      // If this learner doesn't exist yet, create their record
+      if (!learners[learnerId]) {
+        learners[learnerId] = { totalScore: 0, totalPossible: 0, scores: {} };
+      }
+
+      // Calculate percent for this assignment
+      const percent = score / possible;
+
+      // Store the percent (rounded to 3 decimal places) using the assignment ID
+      learners[learnerId].scores[assignment.id] = Number(percent.toFixed(3));
+
+      // Add to their totals (for weighted average)
+      learners[learnerId].totalScore += score;
+      learners[learnerId].totalPossible += possible;
     }
 
-    // Process each learner’s submissions
+    // 5. Turn the learners object into the final result array
     const result = [];
+    for (const id in learners) { // loop type 2: for..in
+      const L = learners[id];
+      const avg = L.totalPossible > 0 ? L.totalScore / L.totalPossible : 0;
 
-    for (let learnerId in learnerMap) {
-      const learnerSubs = learnerMap[learnerId];
-
-      let totalScore = 0;
-      let totalPossible = 0;
-      const assignmentScores = {};
-
-      for (let sub of learnerSubs) {
-        const assignment = assignmentMap[sub.assignment_id];
-        if (!assignment) continue; // skip if assignment is not valid
-
-        const dueDate = new Date(assignment.due_at);
-        const submitDate = new Date(sub.submission.submitted_at);
-
-        let score = sub.submission.score;
-        const possible = assignment.points_possible;
-
-        // Skip if points_possible is zero to avoid divide-by-zero
-        if (possible === 0) continue;
-
-        // Deduct 10% if late
-        if (submitDate > dueDate) {
-          score *= 0.9; // reduce score by 10%
-        }
-
-        //  Calculate percentage score
-        const percent = score / possible;
-
-        //  Store percentage score with assignment ID as key
-        assignmentScores[assignment.id] = Number(percent.toFixed(3));
-
-        // Add to total for average calculation
-        totalScore += score;
-        totalPossible += possible;
-      }
-
-      //  Final average = totalScore / totalPossible
-      const avg = totalPossible > 0 ? totalScore / totalPossible : 0;
-
-      //  Add learner result to final array
+      // Push this learner's info into the result
       result.push({
-        id: Number(learnerId),
+        id: Number(id),
         avg: Number(avg.toFixed(3)),
-        ...assignmentScores,
+        ...L.scores
       });
     }
 
+    // 6. Return the final array of learners
     return result;
-  } catch (error) {
-    console.error("Error processing learner data:", error.message);
+  } catch (err) {
+    // If something goes wrong, log the message and return empty array
+    console.error("Error:", err.message);
     return [];
   }
 }
-
-// add readme breaksown!!
-
-// -------------------------
-// SECTION 5: Run and Output
-// -------------------------
 const result = getLearnerData(CourseInfo, AssignmentGroup, LearnerSubmissions);
 console.log(result);
-
